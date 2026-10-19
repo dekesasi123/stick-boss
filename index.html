@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="color-scheme" content="dark">
+
+<!-- PWA / iOS 添加到主屏 -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="火柴人剑斗">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="火柴人剑斗">
+
+<title>火柴人剑斗 · 三场 Boss 战</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%;
+    height: 100dvh;            /* iOS Safari 地址栏会吃高度，dvh 更准 */
+    background: #14161a; overflow: hidden;
+    font-family: "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    overscroll-behavior: none; /* 禁止 iOS 橡皮筋回弹 */
+  }
+  #wrap {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  canvas {
+    background: #f2f3f5;
+    box-shadow: 0 0 0 1px #2a2e35, 0 18px 50px rgba(0,0,0,.55);
+    image-rendering: auto;
+    cursor: crosshair;
+    display: block;
+    touch-action: none;
+  }
+  #tip {
+    position: absolute; bottom: 6px; width: 100%;
+    text-align: center; color: #6b7280; font-size: 12px;
+    pointer-events: none;
+  }
+  /* ── 触屏虚拟按键 ─────────────────────────────────────── */
+  #touch {
+    position: absolute; inset: 0;
+    pointer-events: none;      /* 只有按钮本身可点，其他区域照样传给画布 */
+    display: none;
+  }
+  #touch.on { display: block; }
+  .pad {
+    position: absolute; bottom: max(12px, env(safe-area-inset-bottom));
+    display: flex; gap: 14px; align-items: flex-end;
+  }
+  .pad.left { left: max(14px, env(safe-area-inset-left)); }
+  .pad.right { right: max(14px, env(safe-area-inset-right)); }
+  .tbtn {
+    pointer-events: auto;
+    -webkit-appearance: none; appearance: none;
+    border: 2px solid rgba(33,37,41,.28);
+    background: rgba(255,255,255,.30);
+    backdrop-filter: blur(2px);
+    color: #212529;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 22px;
+    min-width: 78px; min-height: 78px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+    transition: background .06s, transform .06s;
+  }
+  .tbtn.small { min-width: 64px; min-height: 64px; font-size: 19px; }
+  .tbtn.active { background: rgba(33,37,41,.55); color: #fff; transform: scale(.95); }
+  .tbtn.attack { background: rgba(224,49,49,.30); }
+  .tbtn.attack.active { background: rgba(224,49,49,.72); color: #fff; }
+  .tbtn.block { background: rgba(76,110,245,.30); }
+  .tbtn.block.active { background: rgba(76,110,245,.72); color: #fff; }
+  body.touch #tip { display: none; }
+
+  /* ── 竖屏提示（游戏是横版，竖着看不到全貌）─────────────── */
+  #rotate-hint {
+    position: absolute; inset: 0;
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    background: #14161a; color: #e9ecef;
+    font-size: 17px; letter-spacing: .5px;
+    z-index: 60; padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+    text-align: center;
+  }
+  #rotate-hint .icon { font-size: 46px; line-height: 1; }
+  #rotate-hint .sub { color: #8b93a1; font-size: 14px; }
+  @media (orientation: portrait) {
+    body.touch #rotate-hint { display: flex; }
+  }
+</style>
+</head>
+<body>
+  <div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+
+  <div id="touch">
+    <div class="pad left">
+      <button class="tbtn" data-act="left" aria-label="左移">◀</button>
+      <button class="tbtn" data-act="right" aria-label="右移">▶</button>
+    </div>
+    <div class="pad right">
+      <button class="tbtn small" data-act="jump" aria-label="跳跃">跳</button>
+      <button class="tbtn attack" data-act="attack" aria-label="攻击">攻</button>
+      <button class="tbtn block" data-act="block" aria-label="格挡">挡</button>
+    </div>
+  </div>
+
+  <div id="tip">A / D 移动　空格 跳跃　左键 攻击　右键 格挡（按下瞬间=弹反）　R 重开本场　Esc 暂停</div>
+
+  <div id="rotate-hint">
+    <div class="icon">📱↻</div>
+    <div>请横屏游玩</div>
+    <div class="sub">把手机横过来，体验更好</div>
+  </div>
+
+  <script>
+    // ── 画布自适应 ────────────────────────────────────────
+    (function fitCanvas() {
+      const canvas = document.getElementById('game');
+      const debug = new URLSearchParams(location.search).get('hud') === '1';
+      function apply() {
+        const availW = window.innerWidth - 8;
+        const availH = window.innerHeight - (document.body.classList.contains('touch') ? 8 : 34);
+        const s = Math.min(availW / 960, availH / 540);
+        canvas.style.width = Math.floor(960 * s) + 'px';
+        canvas.style.height = Math.floor(540 * s) + 'px';
+        if (debug) {
+          document.title = `win=${window.innerWidth}x${window.innerHeight} css=${canvas.style.width}x${canvas.style.height} dpr=${window.devicePixelRatio}`;
+        }
+      }
+      apply();
+      addEventListener('resize', apply);
+      addEventListener('orientationchange', () => setTimeout(apply, 260));
+      setTimeout(apply, 300);
+      window.__fitCanvas = apply;
+    })();
+
+    // ── 触屏按键 ──────────────────────────────────────────
+    (function touchControls() {
+      const qs = new URLSearchParams(location.search);
+      const forceOn = qs.get('touch') === '1';
+      const forceOff = qs.get('touch') === '0';
+      const isTouch = !forceOff && (forceOn || navigator.maxTouchPoints > 0
+        || matchMedia('(pointer: coarse)').matches);
+      if (!isTouch) return;
+
+      document.body.classList.add('touch');
+      document.getElementById('touch').classList.add('on');
+      window.__fitCanvas && window.__fitCanvas();
+
+      const nowSec = () => (typeof window.__vclock === "number" ? window.__vclock : performance.now() / 1000);
+      const held = { left: 0, right: 0, block: 0 };
+
+      function setBtn(el, on) {
+        el.classList.toggle('active', on);
+      }
+
+      function apply() {
+        const inp = window.__gameInput;
+        if (!inp) return;
+        inp.left = held.left > 0;
+        inp.right = held.right > 0;
+        inp.blockHeld = held.block > 0;
+      }
+
+      document.querySelectorAll('.tbtn').forEach((el) => {
+        const act = el.dataset.act;
+
+        const down = (ev) => {
+          ev.preventDefault();
+          el.setPointerCapture && el.setPointerCapture(ev.pointerId);
+          setBtn(el, true);
+          const inp = window.__gameInput;
+          if (!inp) return;
+          if (act === 'left' || act === 'right') { held[act] += 1; apply(); }
+          else if (act === 'block') { held.block += 1; apply(); inp.parryPressedAt = nowSec(); }
+          else if (act === 'jump') { inp.jumpQueued = 0.14; }
+          else if (act === 'attack') { inp.attackQueued = 0.14; }
+        };
+
+        const up = (ev) => {
+          ev.preventDefault();
+          setBtn(el, false);
+          if (act === 'left' || act === 'right' || act === 'block') {
+            held[act] = Math.max(0, held[act] - 1);
+            apply();
+          }
+        };
+
+        el.addEventListener('pointerdown', down);
+        el.addEventListener('pointerup', up);
+        el.addEventListener('pointercancel', up);
+        el.addEventListener('lostpointercapture', up);
+        el.addEventListener('contextmenu', (e) => e.preventDefault());
+      });
+
+      // 手指滑出按钮时也要松开，避免“一直往右走”
+      addEventListener('blur', () => {
+        held.left = held.right = held.block = 0;
+        apply();
+        document.querySelectorAll('.tbtn.active').forEach((b) => b.classList.remove('active'));
+      });
+    })();
+  </script>
+  <script src="game.js"></script>
+  <script>
+    // ── Service Worker：装到主屏后离线可玩 ──────────────────
+    // 只在 https 或 localhost 注册（file:// 打开时跳过，桌面版/APK 不需要）
+    (function registerSW() {
+      if (!('serviceWorker' in navigator)) return;
+      const secure = location.protocol === 'https:'
+        || location.hostname === 'localhost'
+        || location.hostname === '127.0.0.1';
+      if (!secure) return;
+      addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      });
+    })();
+
+    // ── iOS：防止双击缩放 / 双指缩放 / 长按菜单 ─────────────
+    (function iosGuards() {
+      let lastTouch = 0;
+      document.addEventListener('touchend', (e) => {
+        const now = Date.now();
+        if (now - lastTouch <= 300) e.preventDefault();   // 双击缩放
+        lastTouch = now;
+      }, { passive: false });
+      document.addEventListener('gesturestart', (e) => e.preventDefault());
+      document.addEventListener('contextmenu', (e) => e.preventDefault());
+    })();
+  </script>
+</body>
+</html>
