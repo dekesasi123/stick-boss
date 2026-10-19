@@ -1,0 +1,35 @@
+{
+  "name": "火柴人剑斗 · 三场 Boss 战",
+  "short_name": "火柴人剑斗",
+  "description": "火柴人画风的横版 Boss Rush，只狼式攻防，三场 Boss。完全离线。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
+  "orientation": "landscape",
+  "background_color": "#14161a",
+  "theme_color": "#14161a",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
